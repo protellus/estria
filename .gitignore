@@ -131,3 +131,6 @@ target/
 # virtualenv
 .venv
 pyvenv.cfg
+# Virtualenv
+estria_env/
+
