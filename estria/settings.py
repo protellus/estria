@@ -37,8 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'estria',  # Your main application
-    'ledger',  # Example application
+    'estria',  
+    'ledger',  
+    'simulation',
 ]
 
 MIDDLEWARE = [
