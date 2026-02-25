@@ -80,7 +80,6 @@ celerybeat.pid
 .env
 .venv
 env/
-venv/
 ENV/
 env.bak/
 venv.bak/
@@ -134,3 +133,37 @@ pyvenv.cfg
 # Virtualenv
 estria_env/
 
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker override files
+docker-compose.override.yml
+
+# Python build artifacts
+*.whl
+
+# pytest
+.pytest_cache/
+
+# Ruff / linting (if you add later)
+.ruff_cache/
+
+# SQLite (explicit safety)
+*.sqlite3
+
+# Data exports / simulations
+*.csv
+*.parquet
+*.feather
+
+# Local simulation outputs
+outputs/
+artifacts/
