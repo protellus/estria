@@ -1,12 +1,24 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+
 from simulation.domain.types import DistributionCharacter
 from simulation.domain.context import SimulationYearContext
 
+
+# ============================================================
+# Base Policy
+# ============================================================
 
 class WithdrawalPolicy(ABC):
     """
     Strategy object that determines how much to withdraw
     from an InvestableAccount each year.
+
+    Policies:
+        - Do NOT mutate account balance
+        - Do NOT compute tax
+        - Only define economic character of withdrawal
     """
 
     @abstractmethod
@@ -19,14 +31,24 @@ class WithdrawalPolicy(ABC):
         ...
 
 
+# ============================================================
+# Helpers
+# ============================================================
+
 def _zero() -> DistributionCharacter:
     return DistributionCharacter(
-        gross=0.0,
-        ordinary_income=0.0,
+        other_ordinary=0.0,
         capital_gain=0.0,
         return_of_basis=0.0,
+        dividend=0.0,
+        interest=0.0,
+        tax_withheld=0.0,
     )
 
+
+# ============================================================
+# Fixed Amount Withdrawal
+# ============================================================
 
 class FixedAmountWithdrawal(WithdrawalPolicy):
 
@@ -36,7 +58,7 @@ class FixedAmountWithdrawal(WithdrawalPolicy):
         start_year: int,
         end_year: int | None = None,
     ):
-        self._amount = amount
+        self._amount = float(amount)
         self._start_year = start_year
         self._end_year = end_year
 
@@ -56,17 +78,18 @@ class FixedAmountWithdrawal(WithdrawalPolicy):
         amount = min(self._amount, account_value)
 
         return DistributionCharacter(
-            gross=amount,
-            ordinary_income=amount,
-            capital_gain=0.0,
-            return_of_basis=0.0,
+            other_ordinary=amount,
         )
 
+
+# ============================================================
+# Percentage Withdrawal
+# ============================================================
 
 class PercentageWithdrawal(WithdrawalPolicy):
 
     def __init__(self, percent: float):
-        self._percent = percent
+        self._percent = float(percent)
 
     def withdraw(
         self,
@@ -78,18 +101,19 @@ class PercentageWithdrawal(WithdrawalPolicy):
         amount = account_value * self._percent
 
         return DistributionCharacter(
-            gross=amount,
-            ordinary_income=amount,
-            capital_gain=0.0,
-            return_of_basis=0.0,
+            other_ordinary=amount,
         )
 
+
+# ============================================================
+# Single Withdrawal (One-Time Event)
+# ============================================================
 
 class SingleWithdrawal(WithdrawalPolicy):
 
     def __init__(self, year: int, amount: float):
         self._year = year
-        self._amount = amount
+        self._amount = float(amount)
         self._taken = False
 
     def withdraw(
@@ -109,12 +133,13 @@ class SingleWithdrawal(WithdrawalPolicy):
         self._taken = True
 
         return DistributionCharacter(
-            gross=amount,
-            ordinary_income=amount,
-            capital_gain=0.0,
-            return_of_basis=0.0,
+            other_ordinary=amount,
         )
 
+
+# ============================================================
+# Required Minimum Distribution (RMD)
+# ============================================================
 
 class RMDWithdrawal(WithdrawalPolicy):
 
@@ -138,8 +163,5 @@ class RMDWithdrawal(WithdrawalPolicy):
         amount = account_value / divisor
 
         return DistributionCharacter(
-            gross=amount,
-            ordinary_income=amount,
-            capital_gain=0.0,
-            return_of_basis=0.0,
+            other_ordinary=amount,
         )

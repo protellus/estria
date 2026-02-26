@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from typing import Dict
 
 from simulation.domain.capital_source import CapitalSource
@@ -9,7 +8,7 @@ from simulation.domain.context import SimulationYearContext
 from simulation.domain.types import (
     DistributionCharacter,
     Jurisdiction,
-    Factor,
+    Asset,
 )
 from simulation.domain.person import Person
 from simulation.domain.withdrawal_policy import WithdrawalPolicy
@@ -20,15 +19,10 @@ class InvestableAccount(CapitalSource):
     Market-driven capital account.
 
     Responsibilities:
-        - Grow according to factor-weighted allocation
+        - Grow according to asset-weighted allocation
         - Delegate withdrawal amount to WithdrawalPolicy
         - Debit its own balance
         - Expose structural metadata for tax layer
-
-    Does NOT:
-        - Compute tax
-        - Coordinate with other accounts
-        - Make bracket decisions
     """
 
     def __init__(
@@ -36,7 +30,7 @@ class InvestableAccount(CapitalSource):
         owner: Person,
         source_jurisdiction: Jurisdiction,
         initial_value: float,
-        allocation: Dict[Factor, float],
+        allocation: Dict[Asset, float],
         withdrawal_policy: WithdrawalPolicy | None = None,
         eligible_for_splitting: bool = False,
     ):
@@ -48,7 +42,7 @@ class InvestableAccount(CapitalSource):
         self._eligible_for_splitting = eligible_for_splitting
 
         if not np.isclose(sum(allocation.values()), 1.0):
-            raise ValueError("Allocation weights must sum to 1.0")  
+            raise ValueError("Allocation weights must sum to 1.0")
 
     # ---------------------------------------------------------
     # Structural Metadata
@@ -83,13 +77,14 @@ class InvestableAccount(CapitalSource):
 
         portfolio_return = 0.0
 
-        for factor, weight in self._allocation.items():
-            factor_return = context.market.factors[factor]
-            portfolio_return += weight * factor_return
+        for asset, weight in self._allocation.items():
+            asset_return = context.market.return_for(asset)
+            portfolio_return += weight * asset_return
 
         self._value *= (1.0 + portfolio_return)
 
     # ---------------------------------------------------------
+
     def distribution(self, context: SimulationYearContext) -> DistributionCharacter:
 
         if not context.is_alive(self._owner):
@@ -100,7 +95,7 @@ class InvestableAccount(CapitalSource):
 
         if self._value <= 0:
             return self._zero()
-        
+
         age = context.age_of(self._owner)
 
         dist = self._withdrawal_policy.withdraw(
@@ -114,17 +109,22 @@ class InvestableAccount(CapitalSource):
         # Debit the account
         self._value -= withdrawal_amount
 
-        if withdrawal_amount != dist.gross:
-            ratio = withdrawal_amount / dist.gross if dist.gross > 0 else 0.0
+        # If no scaling needed, return original distribution
+        if withdrawal_amount == dist.gross:
+            return dist
 
-            return DistributionCharacter(
-                gross=withdrawal_amount,
-                ordinary_income=dist.ordinary_income * ratio,
-                capital_gain=dist.capital_gain * ratio,
-                return_of_basis=dist.return_of_basis * ratio,
-            )
+        # Proportional scaling when capped
+        ratio = withdrawal_amount / dist.gross if dist.gross > 0 else 0.0
 
-        return dist
+        return DistributionCharacter(
+            other_ordinary=dist.other_ordinary * ratio,
+            capital_gain=dist.capital_gain * ratio,
+            return_of_basis=dist.return_of_basis * ratio,
+            dividend=dist.dividend * ratio,
+            interest=dist.interest * ratio,
+            tax_withheld=dist.tax_withheld * ratio,
+        )
+
     # ---------------------------------------------------------
 
     def value(self) -> float:
@@ -133,9 +133,4 @@ class InvestableAccount(CapitalSource):
     # ---------------------------------------------------------
 
     def _zero(self) -> DistributionCharacter:
-        return DistributionCharacter(
-            gross=0.0,
-            ordinary_income=0.0,
-            capital_gain=0.0,
-            return_of_basis=0.0,
-        )
+        return DistributionCharacter()

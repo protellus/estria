@@ -8,7 +8,12 @@ from simulation.domain.pension import DefinedBenefitPension
 from simulation.domain.investable_account import InvestableAccount
 from simulation.domain.withdrawal_policy import FixedAmountWithdrawal
 from simulation.domain.market import MarketEnvironment
-from simulation.domain.types import MarketConfig, Factor, Jurisdiction
+from simulation.domain.types import (
+    MarketConfig,
+    Factor,
+    Asset,
+    Jurisdiction,
+)
 from simulation.domain.single_path_runner import SinglePathRunner
 
 
@@ -28,16 +33,10 @@ class Command(BaseCommand):
         seed = options["seed"]
         csv_path = options.get("csv")
 
-        # -----------------------------
-        # Build deterministic scenario
-        # -----------------------------
-
         mike = Person("Mike", date(1965, 1, 1))
 
-        cfg = self._market_config()
-
         market_env = MarketEnvironment(
-            cfg=cfg,
+            cfg=self._market_config(),
             n_years=years,
             seed=seed,
         )
@@ -54,7 +53,7 @@ class Command(BaseCommand):
             owner=mike,
             source_jurisdiction=Jurisdiction.US,
             initial_value=1_000_000,
-            allocation={Factor.US_EQ: 1.0},
+            allocation={Asset.US_EQ: 1.0},  # FIXED
             withdrawal_policy=FixedAmountWithdrawal(
                 amount=40_000,
                 start_year=0,
@@ -70,16 +69,17 @@ class Command(BaseCommand):
 
         results = runner.run(years)
 
-        # -----------------------------
-        # Print Detailed Output
-        # -----------------------------
+        # -----------------------------------------------------
+        # Output
+        # -----------------------------------------------------
 
         self.stdout.write("")
         self.stdout.write(
             "Year | Age | US_EQ | FX | "
-            "Start | Growth | BeforeWD | WD | End | Total"
+            "AcctStart | Growth | BeforeWD | WD | AcctEnd | "
+            "Pension | TotalValue | TotalDist"
         )
-        self.stdout.write("-" * 120)
+        self.stdout.write("-" * 140)
 
         for r in results:
 
@@ -87,7 +87,8 @@ class Command(BaseCommand):
             us_eq = r.factor_returns[Factor.US_EQ]
             fx = r.fx_usd_cad
 
-            account_state = r.sources["InvestableAccount"]
+            account_state = self._get_source(r, "InvestableAccount")
+            pension_state = self._get_source(r, "DefinedBenefitPension")
 
             self.stdout.write(
                 f"{r.year} | "
@@ -99,12 +100,14 @@ class Command(BaseCommand):
                 f"{account_state.value_before_withdrawal:>12,.2f} | "
                 f"{account_state.distribution.gross:>10,.2f} | "
                 f"{account_state.end_value:>12,.2f} | "
-                f"{r.total_value:>12,.2f}"
+                f"{pension_state.distribution.gross:>10,.2f} | "
+                f"{r.total_value:>12,.2f} | "
+                f"{r.total_distribution:>12,.2f}"
             )
 
-        # -----------------------------
-        # Optional CSV Export
-        # -----------------------------
+        # -----------------------------------------------------
+        # CSV Export
+        # -----------------------------------------------------
 
         if csv_path:
             with open(csv_path, "w", newline="") as f:
@@ -115,16 +118,20 @@ class Command(BaseCommand):
                     "age",
                     "us_eq_return",
                     "fx",
-                    "start_value",
+                    "account_start",
                     "growth",
                     "before_withdrawal",
                     "withdrawal",
-                    "end_value",
+                    "account_end",
+                    "pension_distribution",
                     "total_value",
+                    "total_distribution",
                 ])
 
                 for r in results:
-                    account_state = r.sources["InvestableAccount"]
+
+                    account_state = self._get_source(r, "InvestableAccount")
+                    pension_state = self._get_source(r, "DefinedBenefitPension")
 
                     writer.writerow([
                         r.year,
@@ -136,7 +143,9 @@ class Command(BaseCommand):
                         f"{account_state.value_before_withdrawal:.6f}",
                         f"{account_state.distribution.gross:.6f}",
                         f"{account_state.end_value:.6f}",
+                        f"{pension_state.distribution.gross:.6f}",
                         f"{r.total_value:.6f}",
+                        f"{r.total_distribution:.6f}",
                     ])
 
             self.stdout.write("")
@@ -151,7 +160,19 @@ class Command(BaseCommand):
             corr=np.eye(len(Factor)),
             fx_start=1.30,
             fx_mu_log=0.0,
-            fx_sigma_log=0.0,  # deterministic FX
+            fx_sigma_log=0.0,
             cola_mu=0.0,
             cola_sigma=0.0,
+        )
+
+    # ---------------------------------------------------------
+
+    def _get_source(self, result, cls_name: str):
+        """
+        Robust source lookup.
+        Avoids brittle dictionary key assumptions.
+        """
+        return next(
+            s for s in result.sources.values()
+            if s.name.startswith(cls_name)
         )

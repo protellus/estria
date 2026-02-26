@@ -5,84 +5,133 @@ from typing import Mapping
 from enum import Enum
 import numpy as np
 
-from simulation.domain.person import Person
+
+# ============================================================
+# Income Character
+# ============================================================
+
+class IncomeType(str, Enum):
+    INTEREST = "INTEREST"
+    DIVIDEND = "DIVIDEND"
+    CAPITAL_GAIN = "CAPITAL_GAIN"
+    RETURN_OF_BASIS = "RETURN_OF_BASIS"
+    OTHER_ORDINARY = "OTHER_ORDINARY"
+
+
+@dataclass(frozen=True)
+class DistributionCharacter:
+    """
+    Intrinsic economic composition of a distribution
+    before jurisdiction-specific tax rules are applied.
+
+    All fields represent gross economic income.
+    tax_withheld represents source-level withholding.
+    """
+
+    other_ordinary: float = 0.0
+    dividend: float = 0.0
+    interest: float = 0.0
+    capital_gain: float = 0.0
+    return_of_basis: float = 0.0
+    tax_withheld: float = 0.0
+
+    @property
+    def gross(self) -> float:
+        return (
+            self.other_ordinary
+            + self.dividend
+            + self.interest
+            + self.capital_gain
+            + self.return_of_basis
+        )
+
+    @property
+    def net_cash(self) -> float:
+        return self.gross - self.tax_withheld
+
+
+# ============================================================
+# Jurisdiction
+# ============================================================
+
+class Jurisdiction(str, Enum):
+    US = "US"
+    CA = "CA"
+
+
+@dataclass(frozen=True)
+class JurisdictionTaxableIncome:
+    """
+    Taxable income amounts within a specific jurisdiction.
+    """
+
+    other_ordinary: float = 0.0
+    dividend: float = 0.0
+    interest: float = 0.0
+    capital_gain: float = 0.0
+    eligible_for_splitting: float = 0.0
+
+
+@dataclass(frozen=True)
+class DistributionTaxResult:
+    """
+    Jurisdictional tax classification of a distribution.
+    """
+
+    gross: float
+    taxable_income: Mapping[Jurisdiction, JurisdictionTaxableIncome]
+
+
+# ============================================================
+# Asset & Factor Model
+# ============================================================
 
 class Asset(str, Enum):
     """
-    Investable asset categories used for portfolio allocation.
-
-    An Asset represents how capital is allocated within an account.
-    Assets are portfolio exposures (e.g., US equities, Canadian bonds),
-    not stochastic drivers themselves.
-
-    Asset returns are determined by mapping each Asset to a corresponding
-    stochastic Factor in the capital market model.
-
-    Assets:
-        - Define portfolio weights
-        - Determine account value evolution
-        - Are investable categories
-
-    Assets are NOT:
-        - Individual securities
-        - Risk factors
-        - Economic indices
-        - Inflation processes
-
-    Example:
-        A portfolio may allocate:
-            60% -> Asset.US_EQ
-            40% -> Asset.US_BOND
-
-        The realized return for each Asset is obtained from the matching
-        Factor realization in a MarketYear.
+    Investable portfolio exposures.
     """
     US_EQ = "US_EQ"
     US_BOND = "US_BOND"
+    US_RE = "US_RE"
+
     CA_EQ = "CA_EQ"
     CA_BOND = "CA_BOND"
+    CA_RE = "CA_RE"
 
 
 class Factor(str, Enum):
     """
-    Stochastic risk drivers in the capital market model.
-
-    A Factor represents a modeled source of economic uncertainty.
-    Factors are used to construct the multivariate return-generating
-    process and define the covariance structure of the simulation.
-
-    Factors may include:
-        - Asset return drivers (e.g., US equity factor)
-        - Inflation indices (US or Canadian CPI)
-        - Other macroeconomic drivers (future extension)
-
-    Factors:
-        - Participate in the covariance matrix
-        - Have defined mean (mu) and volatility (sigma)
-        - Are generated via multivariate normal sampling
-        - Represent realized economic states in MarketYear
-
-    Factors are NOT:
-        - Portfolio allocations
-        - Account balances
-        - Tax categories
-
-    Relationship to Asset:
-        Each Asset typically maps to a corresponding return Factor.
-        For example:
-            Asset.US_EQ -> Factor.US_EQ
-
-        However, not all Factors are Assets.
-        Example:
-            Factor.US_INFL is a stochastic driver but not investable.
+    Stochastic drivers in the capital market model.
     """
 
+    # Asset return drivers
     US_EQ = "US_EQ"
     US_BOND = "US_BOND"
+    US_RE = "US_RE"
+
     CA_EQ = "CA_EQ"
     CA_BOND = "CA_BOND"
+    CA_RE = "CA_RE"
+
+    # Inflation processes
     US_INFL = "US_INFL"
     CA_INFL = "CA_INFL"
+
+
+# Explicit mapping (no enum string hacks)
+ASSET_TO_FACTOR: Mapping[Asset, Factor] = {
+    Asset.US_EQ: Factor.US_EQ,
+    Asset.US_BOND: Factor.US_BOND,
+    Asset.US_RE: Factor.US_RE,
+    Asset.CA_EQ: Factor.CA_EQ,
+    Asset.CA_BOND: Factor.CA_BOND,
+    Asset.CA_RE: Factor.CA_RE,
+}
+
+
+# ============================================================
+# Market Configuration
+# ============================================================
 
 @dataclass(frozen=True)
 class MarketConfig:
@@ -97,112 +146,23 @@ class MarketConfig:
     cola_mu: float
     cola_sigma: float
 
-@dataclass(frozen=True)
-class DistributionCharacter:
-    """
-    Intrinsic economic composition of a distribution
-    before jurisdiction-specific tax rules are applied.
-    """
-    gross: float
-    ordinary_income: float
-    capital_gain: float
-    return_of_basis: float
-    
-    def __post_init__(self):
-        if not np.isclose(
-            self.gross,
-            self.ordinary_income + self.capital_gain + self.return_of_basis,
-        ):
-            raise ValueError("DistributionCharacter components must sum to gross.")
 
-class Jurisdiction(str, Enum):
-    US = "US"
-    CA = "CA"
-
-@dataclass(frozen=True)
-class JurisdictionTaxableIncome:
-    """
-    Taxable income amounts within a specific jurisdiction.
-    """
-    ordinary_income: float = 0.0
-    capital_gain: float = 0.0
-    eligible_for_splitting: float = 0.0
-
-
-@dataclass(frozen=True)
-class DistributionTaxResult:
-    """
-    Jurisdictional tax classification of a distribution.
-    """
-    gross: float
-    taxable_income: Mapping[Jurisdiction, JurisdictionTaxableIncome]
-
+# ============================================================
+# Market Realization
+# ============================================================
 
 @dataclass(frozen=True)
 class MarketYear:
     """
-    Realized stochastic factor state for a single simulation year.
-
-    A MarketYear represents the outcome of the capital market model
-    for one time step. It contains the realized values of all modeled
-    risk factors (asset return drivers, inflation indices, etc.) and
-    any exogenous economic processes (e.g., FX, COLA).
-
-    MarketYear is:
-
-        - Immutable (frozen dataclass)
-        - Deterministic given seed and year index
-        - A pure data snapshot
-        - Independent of portfolio allocations
-        - Independent of account balances
-
-    It does NOT represent:
-
-        - Portfolio returns
-        - Account performance
-        - Tax results
-        - Spending outcomes
-
-    Those are computed by applying portfolio exposures (Assets)
-    to the realized factor returns contained here.
-
-    Conceptual layering:
-
-        Factor model  ->  MarketYear  ->  Portfolio  ->  Account  ->  Tax
-
-    Example:
-        year = env.year(5)
-
-        equity_return = year.factor(Factor.US_EQ)
-        inflation_us = year.factor(Factor.US_INFL)
-        fx_rate = year.fx_usd_cad
-
-        portfolio_return = sum(
-            weight[a] * year.return_for(a)
-            for a in portfolio_assets
-        )
+    Realized stochastic state for one simulation year.
     """
 
     factors: Mapping[Factor, float]
     fx_usd_cad: float
     cola: float
 
-    # ---------------------------------------------------------
-
     def factor(self, f: Factor) -> float:
-        """
-        Return the realized value of a specific stochastic factor.
-        """
         return self.factors[f]
 
-    # ---------------------------------------------------------
-
     def return_for(self, asset: Asset) -> float:
-        """
-        Return the realized return for an investable Asset.
-
-        Assets map to corresponding return Factors.
-        Example:
-            Asset.US_EQ -> Factor.US_EQ
-        """
-        return self.factors[Factor(asset.value)]
+        return self.factors[ASSET_TO_FACTOR[asset]]

@@ -7,25 +7,31 @@ from simulation.domain.context import SimulationYearContext
 from simulation.domain.types import Jurisdiction, Factor
 from simulation.domain.market import MarketYear
 
+
+# ============================================================
+# Fixtures
+# ============================================================
+
 @pytest.fixture
-def mike():
+def mike() -> Person:
     return Person(name="Mike", birthdate=date(1965, 1, 1))
 
 
 @pytest.fixture
-def sidney():
+def sidney() -> Person:
     return Person(name="Sidney", birthdate=date(1978, 1, 1))
 
 
 @pytest.fixture
-def market_year():
-    # deterministic fixed factor values
+def market_year() -> MarketYear:
     return MarketYear(
         factors={
             Factor.US_EQ: 0.0,
             Factor.US_BOND: 0.0,
+            Factor.US_RE: 0.0,
             Factor.CA_EQ: 0.0,
             Factor.CA_BOND: 0.0,
+            Factor.CA_RE: 0.0,
             Factor.US_INFL: 0.02,
             Factor.CA_INFL: 0.02,
         },
@@ -34,15 +40,21 @@ def market_year():
     )
 
 
-def context(year, market, alive_map):
+def context(year: int, market: MarketYear, alive_map: dict[Person, bool]) -> SimulationYearContext:
+    ages = {person: 60 for person in alive_map}
     return SimulationYearContext(
         year=year,
         market=market,
         alive=alive_map,
+        ages=ages,
     )
 
 
-def test_pension_pays_base_amount(mike, market_year):
+# ============================================================
+# Core Behavior
+# ============================================================
+
+def test_pension_pays_base_amount(mike: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=50_000,
         owner=mike,
@@ -61,10 +73,10 @@ def test_pension_pays_base_amount(mike, market_year):
     dist = pension.distribution(ctx)
 
     assert dist.gross == 50_000
-    assert dist.ordinary_income == 50_000
+    assert dist.other_ordinary == 50_000
 
 
-def test_pension_not_paid_before_start(mike, market_year):
+def test_pension_not_paid_before_start(mike: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=50_000,
         owner=mike,
@@ -84,8 +96,7 @@ def test_pension_not_paid_before_start(mike, market_year):
     assert dist.gross == 0.0
 
 
-
-def test_pension_stops_after_end_year(mike, market_year):
+def test_pension_stops_after_end_year(mike: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=50_000,
         owner=mike,
@@ -106,8 +117,7 @@ def test_pension_stops_after_end_year(mike, market_year):
     assert dist.gross == 0.0
 
 
-
-def test_pension_indexes_with_inflation(mike, market_year):
+def test_pension_indexes_with_inflation(mike: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=100_000,
         owner=mike,
@@ -126,9 +136,10 @@ def test_pension_indexes_with_inflation(mike, market_year):
     dist = pension.distribution(ctx)
 
     assert dist.gross == pytest.approx(102_000)
+    assert dist.other_ordinary == pytest.approx(102_000)
 
 
-def test_pension_no_indexing_when_none(mike, market_year):
+def test_pension_no_indexing_when_none(mike: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=100_000,
         owner=mike,
@@ -149,8 +160,11 @@ def test_pension_no_indexing_when_none(mike, market_year):
     assert dist.gross == 100_000
 
 
+# ============================================================
+# Survivor Logic
+# ============================================================
 
-def test_survivor_receives_percentage(mike, sidney, market_year):
+def test_survivor_receives_percentage(mike: Person, sidney: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=100_000,
         owner=mike,
@@ -172,9 +186,10 @@ def test_survivor_receives_percentage(mike, sidney, market_year):
     dist = pension.distribution(ctx)
 
     assert dist.gross == 60_000
+    assert dist.other_ordinary == 60_000
 
 
-def test_pension_stops_when_all_dead(mike, sidney, market_year):
+def test_pension_stops_when_all_dead(mike: Person, sidney: Person, market_year: MarketYear) -> None:
     pension = DefinedBenefitPension(
         base_payment=100_000,
         owner=mike,

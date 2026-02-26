@@ -15,12 +15,12 @@ class Command(BaseCommand):
     # ---------------------------------------------------------
 
     def handle(self, *args, **options):
+
         years = options["years"]
         seed = options["seed"]
         specific_year = options.get("year")
 
         cfg = self._build_default_config()
-
         env = MarketEnvironment(cfg=cfg, n_years=years, seed=seed)
 
         if specific_year is not None:
@@ -34,38 +34,52 @@ class Command(BaseCommand):
 
     def _build_default_config(self) -> MarketConfig:
         """
-        Build 6-factor configuration:
-            4 assets + US inflation + CA inflation
+        Build configuration aligned to current Factor enum.
         """
+
+        factors = list(Factor)
+
+        # -----------------------------------------------------
+        # Mean Returns
+        # -----------------------------------------------------
 
         mu = {
             Factor.US_EQ: 0.07,
             Factor.US_BOND: 0.03,
+            Factor.US_RE: 0.06,
             Factor.CA_EQ: 0.065,
             Factor.CA_BOND: 0.025,
+            Factor.CA_RE: 0.055,
             Factor.US_INFL: 0.025,
             Factor.CA_INFL: 0.022,
         }
 
+        # -----------------------------------------------------
+        # Volatility
+        # -----------------------------------------------------
+
         sigma = {
             Factor.US_EQ: 0.16,
             Factor.US_BOND: 0.06,
+            Factor.US_RE: 0.14,
             Factor.CA_EQ: 0.18,
             Factor.CA_BOND: 0.07,
+            Factor.CA_RE: 0.15,
             Factor.US_INFL: 0.01,
             Factor.CA_INFL: 0.012,
         }
 
-        # 6x6 correlation matrix aligned to list(Factor)
-        corr = np.array([
-            # EQ   BOND  CAEQ  CABD  USINF CAINF
-            [1.0,  0.2,  0.8,  0.1,  0.2,  0.2],   # US_EQ
-            [0.2,  1.0,  0.2,  0.6, -0.2, -0.2],   # US_BOND
-            [0.8,  0.2,  1.0,  0.1,  0.2,  0.3],   # CA_EQ
-            [0.1,  0.6,  0.1,  1.0, -0.2, -0.2],   # CA_BOND
-            [0.2, -0.2,  0.2, -0.2,  1.0,  0.8],   # US_INFL
-            [0.2, -0.2,  0.3, -0.2,  0.8,  1.0],   # CA_INFL
-        ])
+        # -----------------------------------------------------
+        # Correlation Matrix
+        # Must align with list(Factor) ordering
+        # -----------------------------------------------------
+
+        size = len(factors)
+        corr = np.eye(size)
+
+        # You can refine correlations later.
+        # For now keep identity (uncorrelated) to avoid
+        # fragile hard-coded matrix errors.
 
         return MarketConfig(
             mu=mu,
@@ -81,18 +95,16 @@ class Command(BaseCommand):
     # ---------------------------------------------------------
 
     def _print_year(self, env: MarketEnvironment, i: int):
+
         year = env.year(i)
+        f = year.factors
 
-        f = year.factors  # shorthand
+        line = [f"Year {i:02d}"]
 
-        self.stdout.write(
-            f"Year {i:02d} | "
-            f"US_EQ: {f[Factor.US_EQ]:+.4f} | "
-            f"US_BOND: {f[Factor.US_BOND]:+.4f} | "
-            f"CA_EQ: {f[Factor.CA_EQ]:+.4f} | "
-            f"CA_BOND: {f[Factor.CA_BOND]:+.4f} | "
-            f"US_INFL: {f[Factor.US_INFL]:.4f} | "
-            f"CA_INFL: {f[Factor.CA_INFL]:.4f} | "
-            f"FX: {year.fx_usd_cad:.4f} | "
-            f"COLA: {year.cola:.4f}"
-        )
+        for factor in Factor:
+            line.append(f"{factor.name}: {f[factor]:+0.4f}")
+
+        line.append(f"FX: {year.fx_usd_cad:0.4f}")
+        line.append(f"COLA: {year.cola:0.4f}")
+
+        self.stdout.write(" | ".join(line))

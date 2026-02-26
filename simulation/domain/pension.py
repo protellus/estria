@@ -1,12 +1,8 @@
-
-
-
 from simulation.domain.capital_source import CapitalSource
 from simulation.domain.person import Person
-
 from simulation.domain.types import DistributionCharacter, Jurisdiction, Factor
-
 from simulation.domain.context import SimulationYearContext
+
 
 class DefinedBenefitPension(CapitalSource):
 
@@ -22,7 +18,7 @@ class DefinedBenefitPension(CapitalSource):
         survivor_percentage: float = 0.0,
         eligible_for_splitting: bool = True,
     ):
-        self._base_payment = base_payment
+        self._base_payment = float(base_payment)
         self._owner = owner
         self._jurisdiction = source_jurisdiction
         self._start_year = start_year
@@ -32,9 +28,11 @@ class DefinedBenefitPension(CapitalSource):
         self._survivor_percentage = survivor_percentage
         self._eligible_for_splitting = eligible_for_splitting
 
-        self._current_payment = base_payment
+        self._current_payment = float(base_payment)
 
-    # ---------- Metadata ----------
+    # ---------------------------------------------------------
+    # Structural Metadata
+    # ---------------------------------------------------------
 
     @property
     def owner(self) -> Person:
@@ -48,12 +46,20 @@ class DefinedBenefitPension(CapitalSource):
     def eligible_for_splitting(self) -> bool:
         return self._eligible_for_splitting
 
-    # ---------- Simulation ----------
+    # ---------------------------------------------------------
+    # Simulation Lifecycle
+    # ---------------------------------------------------------
 
     def step(self, context: SimulationYearContext) -> None:
+        """
+        Apply inflation indexing if applicable.
+        """
+
         if self._inflation_factor and context.year >= self._start_year:
             infl = context.market.factor(self._inflation_factor)
             self._current_payment *= (1.0 + infl)
+
+    # ---------------------------------------------------------
 
     def distribution(self, context: SimulationYearContext) -> DistributionCharacter:
 
@@ -77,19 +83,18 @@ class DefinedBenefitPension(CapitalSource):
             return self._zero()
 
         return DistributionCharacter(
-            gross=amount,
-            ordinary_income=amount,
-            capital_gain=0.0,
-            return_of_basis=0.0,
+            other_ordinary=amount
         )
+
+    # ---------------------------------------------------------
 
     def value(self) -> float:
+        """
+        Defined benefit pensions have no account balance.
+        """
         return 0.0
 
+    # ---------------------------------------------------------
+
     def _zero(self) -> DistributionCharacter:
-        return DistributionCharacter(
-            gross=0.0,
-            ordinary_income=0.0,
-            capital_gain=0.0,
-            return_of_basis=0.0,
-        )
+        return DistributionCharacter()

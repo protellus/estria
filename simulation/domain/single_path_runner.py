@@ -77,7 +77,7 @@ class SinglePathRunner:
 
             for source in self._sources:
 
-                name = type(source).__name__
+                name = f"{type(source).__name__}_{id(source)}"
 
                 start_value = source.value()
 
@@ -109,7 +109,7 @@ class SinglePathRunner:
                 YearResult(
                     year=calendar_year,
                     ages=age_name_map,
-                    factor_returns=market_year.factors,
+                    factor_returns=dict(market_year.factors),
                     fx_usd_cad=market_year.fx_usd_cad,
                     sources=source_results,
                 )

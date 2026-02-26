@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from datetime import date
+import numpy as np
 
 from simulation.domain.person import Person
 from simulation.domain.market import MarketEnvironment
@@ -7,7 +8,6 @@ from simulation.domain.context import SimulationYearContext
 from simulation.domain.pension import DefinedBenefitPension
 from simulation.domain.types import MarketConfig, Factor, Jurisdiction
 
-import numpy as np
 
 class Command(BaseCommand):
     help = "Simulate and print pension cashflows"
@@ -19,6 +19,7 @@ class Command(BaseCommand):
     # ---------------------------------------------------------
 
     def handle(self, *args, **options):
+
         years = options["years"]
         seed = options["seed"]
 
@@ -30,15 +31,17 @@ class Command(BaseCommand):
         sidney = Person(name="Sidney", birthdate=date(1978, 1, 1))
 
         # --------------------------------------------
-        # Build minimal market config (deterministic-ish)
+        # Market
         # --------------------------------------------
 
-        cfg = self._build_market_config()
-
-        market_env = MarketEnvironment(cfg=cfg, n_years=years, seed=seed)
+        market_env = MarketEnvironment(
+            cfg=self._build_market_config(),
+            n_years=years,
+            seed=seed,
+        )
 
         # --------------------------------------------
-        # Create pension
+        # Pension
         # --------------------------------------------
 
         pension = DefinedBenefitPension(
@@ -53,45 +56,51 @@ class Command(BaseCommand):
         )
 
         # --------------------------------------------
-        # Simulate years
+        # Simulation
         # --------------------------------------------
 
         self.stdout.write("\n--- Pension Simulation ---\n")
 
-        for year in range(years):
-            market_year = market_env.year(year)
+        start_calendar_year = 2026
 
-            # For demo purposes: assume both alive
+        for i in range(years):
+
+            calendar_year = start_calendar_year + i
+            market_year = market_env.year(i)
+
+            # Demo mortality: assume both alive
             alive_map = {
                 mike: True,
                 sidney: True,
             }
 
+            age_map = {
+                mike: mike.current_age(calendar_year),
+                sidney: sidney.current_age(calendar_year),
+            }
+
             context = SimulationYearContext(
-                year=year,
+                year=calendar_year,
                 market=market_year,
                 alive=alive_map,
+                ages=age_map,
             )
 
             pension.step(context)
             dist = pension.distribution(context)
 
             self.stdout.write(
-                f"Year {year:02d} | "
-                f"Owner: {pension.owner.name} | "
-                f"Amount: {dist.gross:,.2f}"
+                f"Year {calendar_year} | "
+                f"Owner Age: {age_map[mike]:>2} | "
+                f"Amount: {dist.gross:>12,.2f}"
             )
 
     # ---------------------------------------------------------
 
     def _build_market_config(self) -> MarketConfig:
         return MarketConfig(
-            mu={
-                f: 0.03 for f in Factor
-            },
-            sigma={
-                f: 0.01 for f in Factor
-            },
+            mu={f: 0.03 for f in Factor},
+            sigma={f: 0.01 for f in Factor},
             corr=np.eye(len(Factor)),
             fx_start=1.35,
             fx_mu_log=0.0,
