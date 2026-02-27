@@ -68,8 +68,8 @@ class Person:
     # ---------------------------------------------------------
 
     def advance_year(self) -> None:
-        self._age += 1
-
+        if self.is_alive():
+            self._age += 1
     # ---------------------------------------------------------
 
     def is_alive(self) -> bool:

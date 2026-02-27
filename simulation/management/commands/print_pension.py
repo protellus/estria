@@ -5,32 +5,62 @@ from simulation.domain.person import Person
 from simulation.domain.market import MarketEnvironment, MarketConfig, Factor
 from simulation.domain.db_pension import DefinedBenefitPension
 from simulation.domain.types import Jurisdiction
+from simulation.domain.mortality import MortalityTable
 
 
 class Command(BaseCommand):
-    help = "Simulate and print pension cashflows"
+    help = "Simulate pension cashflows until both parties die"
+
+    # ---------------------------------------------------------
 
     def add_arguments(self, parser):
-        parser.add_argument("--years", type=int, default=30)
-        parser.add_argument("--seed", type=int, default=42)
+
+        # RNG
+        parser.add_argument(
+            "--seed",
+            type=int,
+            required=False,
+            help="Random seed (omit for non-deterministic run)",
+        )
+
+        # Pension parameters
+        parser.add_argument("--base-payment", type=float, default=50_000)
+        parser.add_argument("--start-year", type=int, default=0)
+        parser.add_argument("--inflation-rate", type=float, default=0.00)
+        parser.add_argument("--survivor-percentage", type=float, default=0.60)
 
     # ---------------------------------------------------------
 
     def handle(self, *args, **options):
 
-        seed = options["seed"]
-        rng = np.random.default_rng(seed)
+        seed = options.get("seed")
 
-        self.stdout.write("\n--- Pension Monte Carlo Run ---\n")
+        base_payment = options["base_payment"]
+        start_year = options["start_year"]
+        inflation_rate = options["inflation_rate"]
+        survivor_percentage = options["survivor_percentage"]
+
+        # Validate survivor %
+        if not 0.0 <= survivor_percentage <= 1.0:
+            raise ValueError("survivor_percentage must be between 0 and 1")
 
         # ---------------------------------------------------------
-        # Mortality curve (increasing hazard)
+        # RNG
         # ---------------------------------------------------------
 
-        qx = np.clip(
-            0.0005 * np.exp(np.linspace(0, 5, 120)),
-            0.0005,
-            0.35,
+        if seed is None:
+            seed_seq = np.random.SeedSequence()
+        else:
+            seed_seq = np.random.SeedSequence(seed)
+
+        mortality_seq, market_seq = seed_seq.spawn(2)
+
+        mortality_rng = np.random.default_rng(mortality_seq)
+        market_rng_seed = int(market_seq.generate_state(1)[0])
+
+        self.stdout.write(
+            f"\n--- Pension Monte Carlo Run "
+            f"(Seed={seed if seed is not None else 'random'}) ---\n"
         )
 
         # ---------------------------------------------------------
@@ -40,32 +70,35 @@ class Command(BaseCommand):
         mike = Person(
             name="Mike",
             initial_age=60,
-            qx_array=qx,
-            tax_residency=Jurisdiction.US,
-            rng=rng,
+            mortality_table=MortalityTable.CANADA_MALE,
+            tax_residency=Jurisdiction.CA,
+            rng=mortality_rng,
         )
 
         sidney = Person(
             name="Sidney",
-            initial_age=55,
-            qx_array=qx,
-            tax_residency=Jurisdiction.US,
-            rng=rng,
+            initial_age=49,
+            mortality_table=MortalityTable.CANADA_MALE,
+            tax_residency=Jurisdiction.CA,
+            rng=mortality_rng,
         )
 
         # ---------------------------------------------------------
-        # Market path (long enough to outlive both)
+        # Market Path
         # ---------------------------------------------------------
 
-        years = 120  # maximum possible duration
+        max_age = max(
+            len(mike.mortality_table.qx()),
+            len(sidney.mortality_table.qx()),
+        )
 
         market_env = MarketEnvironment(
             cfg=self._build_market_config(),
-            n_years=years,
-            seed=seed,
+            n_years=max_age,
+            seed=market_rng_seed,
         )
 
-        market_path = [market_env.year(i) for i in range(years)]
+        market_path = [market_env.year(i) for i in range(max_age)]
 
         # ---------------------------------------------------------
         # Pension
@@ -76,39 +109,35 @@ class Command(BaseCommand):
             market_path=market_path,
             name="US DB Pension",
             domicile=Jurisdiction.US,
-            base_payment=50_000,
-            start_year=0,
-            inflation_rate=0.02,
+            base_payment=base_payment,
+            start_year=start_year,
+            inflation_rate=inflation_rate,
             beneficiary=sidney,
-            survivor_percentage=0.60,
+            survivor_percentage=survivor_percentage,
         )
 
         # ---------------------------------------------------------
         # Simulation Loop
         # ---------------------------------------------------------
 
+        year = 0
         mike_death_announced = False
         sidney_death_announced = False
 
-        while pension.is_active():
+        while mike.is_alive() or sidney.is_alive():
 
             result = pension.distribute()
 
-            # Death detection
             if not mike.is_alive() and not mike_death_announced:
-                self.stdout.write(
-                    f">>> Mike died at age {mike.death_age}"
-                )
+                self.stdout.write(f">>> Mike died at age {mike.death_age}")
                 mike_death_announced = True
 
             if not sidney.is_alive() and not sidney_death_announced:
-                self.stdout.write(
-                    f">>> Sidney died at age {sidney.death_age}"
-                )
+                self.stdout.write(f">>> Sidney died at age {sidney.death_age}")
                 sidney_death_announced = True
 
             self.stdout.write(
-                f"Year {result.year:>3} | "
+                f"Year {year:>3} | "
                 f"Mike Age: {mike.age:>3} | "
                 f"Sidney Age: {sidney.age:>3} | "
                 f"Recipient: "
@@ -116,12 +145,12 @@ class Command(BaseCommand):
                 f"Gross: {result.distribution.gross:>12,.2f}"
             )
 
-            # Advance time
             mike.advance_year()
             sidney.advance_year()
+            year += 1
 
         self.stdout.write("\n--- Simulation Ended: Both Deceased ---\n")
-    
+
     # ---------------------------------------------------------
 
     def _build_market_config(self) -> MarketConfig:
