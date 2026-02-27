@@ -4,7 +4,7 @@ import numpy as np
 from typing import Dict, Sequence
 
 from simulation.domain.capital_source import CapitalSource
-from simulation.domain.market import MarketYear
+from simulation.domain.market import MarketYear, ReturnConvention
 from simulation.domain.distribution import Distribution
 from simulation.domain.types import Jurisdiction, Asset
 from simulation.domain.person import Person
@@ -51,15 +51,16 @@ class InvestableAccount(CapitalSource):
     # ---------------------------------------------------------
 
     def _allocation(self) -> Dict[Asset, float]:
-        """
-        Return portfolio allocation weights.
-        Subclasses may override for glide paths, regime logic, etc.
-        """
         return self._static_allocation
 
-    # ---------------------------------------------------------
-
     def _validate_allocation(self, allocation: Dict[Asset, float]) -> None:
+        if not allocation:
+            raise ValueError("Allocation must not be empty")
+
+        for k in allocation.keys():
+            if not isinstance(k, Asset):
+                raise TypeError(f"Allocation key must be an Asset enum, got {type(k)}")
+
         if not np.isclose(sum(allocation.values()), 1.0):
             raise ValueError("Allocation weights must sum to 1.0")
 
@@ -80,10 +81,8 @@ class InvestableAccount(CapitalSource):
     # ---------------------------------------------------------
 
     def _pre_distribution(self) -> None:
-
-        if not self._owner.is_alive():
+        if not self._anyone_alive():
             return
-
         if self._value <= 0:
             return
 
@@ -95,15 +94,29 @@ class InvestableAccount(CapitalSource):
             for asset, weight in allocation.items()
         )
 
+        # If the market is providing arithmetic returns directly, prohibit < -100%.
+        if (
+            getattr(market, "factor_return_convention", None) == ReturnConvention.ARITHMETIC
+            and portfolio_return < -1.0
+        ):
+            raise ValueError(
+                f"{self.name} invalid portfolio_return={portfolio_return} (< -1.0). "
+                "Market factors are arithmetic; check mu/sigma calibration."
+            )
+
         self._value *= (1.0 + portfolio_return)
+
+        # Defensive against tiny negative due to floating error
+        if self._value < 0 and np.isclose(self._value, 0.0):
+            self._value = 0.0
 
     # ---------------------------------------------------------
     # Withdrawal Phase
     # ---------------------------------------------------------
 
     def _distribution(self) -> Distribution:
-
-        if not self._owner.is_alive():
+        recipient = self._determine_recipient()
+        if recipient is None:
             self._pending_withdrawal = 0.0
             return Distribution()
 
@@ -112,31 +125,21 @@ class InvestableAccount(CapitalSource):
             return Distribution()
 
         proposed = self._withdrawal_distribution()
+        gross = proposed.gross
 
-        withdrawal_amount = max(0.0, min(proposed.gross, self._value))
+        if gross <= 0.0:
+            self._pending_withdrawal = 0.0
+            return Distribution()
+
+        withdrawal_amount = max(0.0, min(gross, self._value))
         self._pending_withdrawal = withdrawal_amount
 
-        if withdrawal_amount == proposed.gross:
+        if withdrawal_amount == gross:
             return proposed
 
-        ratio = withdrawal_amount / proposed.gross if proposed.gross > 0 else 0.0
-        return proposed.scaled(ratio)
-
-    # ---------------------------------------------------------
+        return proposed.scaled(withdrawal_amount / gross)
 
     def _withdrawal_distribution(self) -> Distribution:
-        """
-        Hook for withdrawal logic.
-
-        Default: no withdrawals.
-
-        Subclasses override to implement:
-            - Fixed dollar withdrawal
-            - Percentage withdrawal
-            - RMD logic
-            - Guardrails
-            - Dynamic spending rules
-        """
         return Distribution()
 
     # ---------------------------------------------------------
@@ -148,7 +151,8 @@ class InvestableAccount(CapitalSource):
             self._value -= self._pending_withdrawal
             self._pending_withdrawal = 0.0
 
-    # ---------------------------------------------------------
+            if self._value < 0 and np.isclose(self._value, 0.0):
+                self._value = 0.0
 
     def _end_balance(self) -> float:
         return self._value

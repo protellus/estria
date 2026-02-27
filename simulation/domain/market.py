@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 from typing import Optional, Dict, Mapping
 import numpy as np
 from enum import Enum
 from dataclasses import dataclass
 
 from simulation.domain.types import Asset
+
 
 class Factor(str, Enum):
     """
@@ -25,7 +27,6 @@ class Factor(str, Enum):
     CA_INFL = "CA_INFL"
 
 
-# Explicit mapping (no enum string hacks)
 ASSET_TO_FACTOR: Mapping[Asset, Factor] = {
     Asset.US_EQ: Factor.US_EQ,
     Asset.US_BOND: Factor.US_BOND,
@@ -36,9 +37,13 @@ ASSET_TO_FACTOR: Mapping[Asset, Factor] = {
 }
 
 
-# ============================================================
-# Market Configuration
-# ============================================================
+class ReturnConvention(str, Enum):
+    """
+    How factor draws should be interpreted when used as *asset returns*.
+    """
+    ARITHMETIC = "ARITHMETIC"  # factor values are arithmetic returns
+    LOG = "LOG"                # factor values are log returns
+
 
 @dataclass(frozen=True)
 class MarketConfig:
@@ -46,14 +51,17 @@ class MarketConfig:
     sigma: Mapping[Factor, float]
     corr: np.ndarray
 
-    fx_start: float
-    fx_mu_log: float
-    fx_sigma_log: float
+    # IMPORTANT: this setting changes the meaning of mu/sigma for asset return factors.
+    factor_return_convention: ReturnConvention = ReturnConvention.LOG
 
-    cola_mu: float
-    cola_sigma: float
+    fx_start: float = 1.0
+    fx_mu_log: float = 0.0
+    fx_sigma_log: float = 0.0
 
-    def validate(self):
+    cola_mu: float = 0.0
+    cola_sigma: float = 0.0
+
+    def validate(self) -> None:
         n = len(Factor)
         if self.corr.shape != (n, n):
             raise ValueError("Correlation matrix size mismatch")
@@ -62,9 +70,6 @@ class MarketConfig:
         if not np.allclose(np.diag(self.corr), 1.0):
             raise ValueError("Correlation diagonal must be 1.0")
 
-# ============================================================
-# Market Realization
-# ============================================================
 
 @dataclass(frozen=True)
 class MarketYear:
@@ -75,13 +80,23 @@ class MarketYear:
     factors: Mapping[Factor, float]
     fx_usd_cad: float
     cola: float
+    factor_return_convention: ReturnConvention = ReturnConvention.LOG
 
     def factor(self, f: Factor) -> float:
         return self.factors[f]
 
     def return_for(self, asset: Asset) -> float:
-        return self.factors[ASSET_TO_FACTOR[asset]]
-    
+        """
+        Returns the *arithmetic* return for the given asset.
+        If the underlying factor is log-return, convert via exp(x) - 1.
+        """
+        x = float(self.factors[ASSET_TO_FACTOR[asset]])
+
+        if self.factor_return_convention == ReturnConvention.ARITHMETIC:
+            return x
+
+        # LOG convention: x is log return; arithmetic return is exp(x) - 1
+        return float(np.exp(x) - 1.0)
 
 
 class MarketEnvironment:
@@ -89,7 +104,7 @@ class MarketEnvironment:
     Multivariate capital market generator.
 
     Factors included:
-        - 4 asset return factors
+        - asset return factors
         - US inflation
         - Canadian inflation
 
@@ -110,61 +125,31 @@ class MarketEnvironment:
 
         self._generate()
 
-    # ---------------------------------------------------------
-
     def _generate(self) -> None:
-        """
-        Generate correlated factor returns and economic processes.
-        """
-
-        mus = np.array(
-            [self.cfg.mu[f] for f in self.FACTOR_ORDER],
-            dtype=float,
-        )
-
-        sig = np.array(
-            [self.cfg.sigma[f] for f in self.FACTOR_ORDER],
-            dtype=float,
-        )
+        mus = np.array([self.cfg.mu[f] for f in self.FACTOR_ORDER], dtype=float)
+        sig = np.array([self.cfg.sigma[f] for f in self.FACTOR_ORDER], dtype=float)
 
         cov = np.array(self.cfg.corr, dtype=float) * np.outer(sig, sig)
-
         draws = self.rng.multivariate_normal(mus, cov, self.n_years)
 
         for j, factor in enumerate(self.FACTOR_ORDER):
             self._factor_draws[factor] = draws[:, j]
 
-        # COLA (still independent)
-        self._cola = self.rng.normal(
-            self.cfg.cola_mu,
-            self.cfg.cola_sigma,
-            self.n_years,
-        )
+        # COLA (independent)
+        self._cola = self.rng.normal(self.cfg.cola_mu, self.cfg.cola_sigma, self.n_years)
 
         # FX (lognormal process)
         fx = float(self.cfg.fx_start)
-        fx_logs = self.rng.normal(
-            self.cfg.fx_mu_log,
-            self.cfg.fx_sigma_log,
-            self.n_years,
-        )
+        fx_logs = self.rng.normal(self.cfg.fx_mu_log, self.cfg.fx_sigma_log, self.n_years)
 
         for i in range(self.n_years):
             fx *= float(np.exp(fx_logs[i]))
             self._fx_usd_cad[i] = fx
 
-    # ---------------------------------------------------------
-
     def year(self, i: int) -> MarketYear:
-        """
-        Return realized factor snapshot for year i.
-        """
-
         return MarketYear(
-            factors={
-                factor: float(self._factor_draws[factor][i])
-                for factor in self.FACTOR_ORDER
-            },
+            factors={factor: float(self._factor_draws[factor][i]) for factor in self.FACTOR_ORDER},
             fx_usd_cad=float(self._fx_usd_cad[i]),
             cola=float(self._cola[i]),
+            factor_return_convention=self.cfg.factor_return_convention,
         )

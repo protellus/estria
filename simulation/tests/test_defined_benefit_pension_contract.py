@@ -1,23 +1,21 @@
+# simulation/tests/test_defined_benefit_pension_contract.py
 import pytest
-import numpy as np
 
 from simulation.domain.types import Jurisdiction
-from simulation.domain.person import Person
 from simulation.domain.market import MarketYear
 from simulation.domain.db_pension import DefinedBenefitPension
 from simulation.tests.test_capital_source_contract import CapitalSourceContract
+from simulation.tests.conftest import StubPerson  # optional; you can also reuse owner fixture
+
 
 class TestDefinedBenefitPensionContract(CapitalSourceContract):
 
     @pytest.fixture
-    def capital_source(self):
-        rng = np.random.default_rng(42)
-        qx = np.zeros(100)
-
-        owner = Person(
+    def capital_source(self, rng, mortality_table):
+        owner = StubPerson(
             name="Owner",
             initial_age=60,
-            qx_array=qx,
+            mortality_table=mortality_table,
             tax_residency=Jurisdiction.US,
             rng=rng,
         )

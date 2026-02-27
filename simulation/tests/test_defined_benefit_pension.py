@@ -1,48 +1,14 @@
 import pytest
-import numpy as np
 
-from simulation.domain.person import Person
 from simulation.domain.types import Jurisdiction
 from simulation.domain.market import MarketYear
 from simulation.domain.db_pension import DefinedBenefitPension
 
 
-# ============================================================
-# Fixtures
-# ============================================================
 
 @pytest.fixture
-def rng():
-    return np.random.default_rng(42)
-
-
-@pytest.fixture
-def qx():
-    # No death for deterministic survival
-    return np.zeros(100)
-
-
-@pytest.fixture
-def owner(rng, qx):
-    return Person(
-        name="Owner",
-        initial_age=60,
-        qx_array=qx,
-        tax_residency=Jurisdiction.US,
-        rng=rng,
-    )
-
-
-@pytest.fixture
-def beneficiary(rng, qx):
-    return Person(
-        name="Beneficiary",
-        initial_age=55,
-        qx_array=qx,
-        tax_residency=Jurisdiction.US,
-        rng=rng,
-    )
-
+def market_path():
+    return [MarketYear(factors={}, fx_usd_cad=1.0, cola=0.02) for _ in range(5)]
 
 @pytest.fixture
 def market_path():
