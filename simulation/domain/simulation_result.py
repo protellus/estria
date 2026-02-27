@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from simulation.domain.types import DistributionCharacter
+from simulation.domain.types import Distribution
 
 
 @dataclass(frozen=True)
@@ -8,5 +8,5 @@ class SourceYearResult:
     start_value: float
     growth_amount: float
     value_before_withdrawal: float
-    distribution: DistributionCharacter
+    distribution: Distribution
     end_value: float

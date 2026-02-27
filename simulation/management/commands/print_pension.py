@@ -1,12 +1,10 @@
 from django.core.management.base import BaseCommand
-from datetime import date
 import numpy as np
 
 from simulation.domain.person import Person
-from simulation.domain.market import MarketEnvironment
-from simulation.domain.context import SimulationYearContext
-from simulation.domain.pension import DefinedBenefitPension
-from simulation.domain.types import MarketConfig, Factor, Jurisdiction
+from simulation.domain.market import MarketEnvironment, MarketConfig, Factor
+from simulation.domain.db_pension import DefinedBenefitPension
+from simulation.domain.types import Jurisdiction
 
 
 class Command(BaseCommand):
@@ -20,19 +18,46 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
 
-        years = options["years"]
         seed = options["seed"]
+        rng = np.random.default_rng(seed)
 
-        # --------------------------------------------
-        # Create people
-        # --------------------------------------------
+        self.stdout.write("\n--- Pension Monte Carlo Run ---\n")
 
-        mike = Person(name="Mike", birthdate=date(1965, 1, 1))
-        sidney = Person(name="Sidney", birthdate=date(1978, 1, 1))
+        # ---------------------------------------------------------
+        # Mortality curve (increasing hazard)
+        # ---------------------------------------------------------
 
-        # --------------------------------------------
-        # Market
-        # --------------------------------------------
+        qx = np.clip(
+            0.0005 * np.exp(np.linspace(0, 5, 120)),
+            0.0005,
+            0.35,
+        )
+
+        # ---------------------------------------------------------
+        # People
+        # ---------------------------------------------------------
+
+        mike = Person(
+            name="Mike",
+            initial_age=60,
+            qx_array=qx,
+            tax_residency=Jurisdiction.US,
+            rng=rng,
+        )
+
+        sidney = Person(
+            name="Sidney",
+            initial_age=55,
+            qx_array=qx,
+            tax_residency=Jurisdiction.US,
+            rng=rng,
+        )
+
+        # ---------------------------------------------------------
+        # Market path (long enough to outlive both)
+        # ---------------------------------------------------------
+
+        years = 120  # maximum possible duration
 
         market_env = MarketEnvironment(
             cfg=self._build_market_config(),
@@ -40,61 +65,63 @@ class Command(BaseCommand):
             seed=seed,
         )
 
-        # --------------------------------------------
+        market_path = [market_env.year(i) for i in range(years)]
+
+        # ---------------------------------------------------------
         # Pension
-        # --------------------------------------------
+        # ---------------------------------------------------------
 
         pension = DefinedBenefitPension(
-            base_payment=50_000,
             owner=mike,
-            source_jurisdiction=Jurisdiction.US,
+            market_path=market_path,
+            name="US DB Pension",
+            domicile=Jurisdiction.US,
+            base_payment=50_000,
             start_year=0,
-            inflation_factor=None,
+            inflation_rate=0.02,
             beneficiary=sidney,
             survivor_percentage=0.60,
-            eligible_for_splitting=True,
         )
 
-        # --------------------------------------------
-        # Simulation
-        # --------------------------------------------
+        # ---------------------------------------------------------
+        # Simulation Loop
+        # ---------------------------------------------------------
 
-        self.stdout.write("\n--- Pension Simulation ---\n")
+        mike_death_announced = False
+        sidney_death_announced = False
 
-        start_calendar_year = 2026
+        while pension.is_active():
 
-        for i in range(years):
+            result = pension.distribute()
 
-            calendar_year = start_calendar_year + i
-            market_year = market_env.year(i)
+            # Death detection
+            if not mike.is_alive() and not mike_death_announced:
+                self.stdout.write(
+                    f">>> Mike died at age {mike.death_age}"
+                )
+                mike_death_announced = True
 
-            # Demo mortality: assume both alive
-            alive_map = {
-                mike: True,
-                sidney: True,
-            }
-
-            age_map = {
-                mike: mike.current_age(calendar_year),
-                sidney: sidney.current_age(calendar_year),
-            }
-
-            context = SimulationYearContext(
-                year=calendar_year,
-                market=market_year,
-                alive=alive_map,
-                ages=age_map,
-            )
-
-            pension.step(context)
-            dist = pension.distribution(context)
+            if not sidney.is_alive() and not sidney_death_announced:
+                self.stdout.write(
+                    f">>> Sidney died at age {sidney.death_age}"
+                )
+                sidney_death_announced = True
 
             self.stdout.write(
-                f"Year {calendar_year} | "
-                f"Owner Age: {age_map[mike]:>2} | "
-                f"Amount: {dist.gross:>12,.2f}"
+                f"Year {result.year:>3} | "
+                f"Mike Age: {mike.age:>3} | "
+                f"Sidney Age: {sidney.age:>3} | "
+                f"Recipient: "
+                f"{result.recipient.name if result.recipient else 'None':>7} | "
+                f"Gross: {result.distribution.gross:>12,.2f}"
             )
 
+            # Advance time
+            mike.advance_year()
+            sidney.advance_year()
+
+        self.stdout.write("\n--- Simulation Ended: Both Deceased ---\n")
+    
     # ---------------------------------------------------------
 
     def _build_market_config(self) -> MarketConfig:

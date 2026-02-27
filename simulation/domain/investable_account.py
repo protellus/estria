@@ -1,136 +1,154 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Dict
+from typing import Dict, Sequence
 
 from simulation.domain.capital_source import CapitalSource
-from simulation.domain.context import SimulationYearContext
-from simulation.domain.types import (
-    DistributionCharacter,
-    Jurisdiction,
-    Asset,
-)
+from simulation.domain.market import MarketYear
+from simulation.domain.distribution import Distribution
+from simulation.domain.types import Jurisdiction, Asset
 from simulation.domain.person import Person
-from simulation.domain.withdrawal_policy import WithdrawalPolicy
 
 
 class InvestableAccount(CapitalSource):
     """
     Market-driven capital account.
 
-    Responsibilities:
-        - Grow according to asset-weighted allocation
-        - Delegate withdrawal amount to WithdrawalPolicy
-        - Debit its own balance
-        - Expose structural metadata for tax layer
+    Lifecycle per year:
+        1. Growth (pre_distribution)
+        2. Withdrawal decision (distribution)
+        3. Debit balance (post_distribution)
     """
 
     def __init__(
         self,
         owner: Person,
-        source_jurisdiction: Jurisdiction,
+        market_path: Sequence[MarketYear],
+        name: str,
+        domicile: Jurisdiction,
         initial_value: float,
         allocation: Dict[Asset, float],
-        withdrawal_policy: WithdrawalPolicy | None = None,
-        eligible_for_splitting: bool = False,
+        beneficiary: Person | None = None,
     ):
-        self._owner = owner
-        self._jurisdiction = source_jurisdiction
-        self._value = float(initial_value)
-        self._allocation = allocation
-        self._withdrawal_policy = withdrawal_policy
-        self._eligible_for_splitting = eligible_for_splitting
+        super().__init__(
+            owner=owner,
+            market_path=market_path,
+            name=name,
+            domicile=domicile,
+            beneficiary=beneficiary,
+        )
 
+        self._initial_value = float(initial_value)
+        self._value = float(initial_value)
+
+        self._static_allocation = dict(allocation)
+        self._validate_allocation(self._static_allocation)
+
+        self._pending_withdrawal = 0.0
+
+    # ---------------------------------------------------------
+    # Allocation Hook
+    # ---------------------------------------------------------
+
+    def _allocation(self) -> Dict[Asset, float]:
+        """
+        Return portfolio allocation weights.
+        Subclasses may override for glide paths, regime logic, etc.
+        """
+        return self._static_allocation
+
+    # ---------------------------------------------------------
+
+    def _validate_allocation(self, allocation: Dict[Asset, float]) -> None:
         if not np.isclose(sum(allocation.values()), 1.0):
             raise ValueError("Allocation weights must sum to 1.0")
 
-    # ---------------------------------------------------------
-    # Structural Metadata
-    # ---------------------------------------------------------
-
-    @property
-    def owner(self) -> Person:
-        return self._owner
-
-    @property
-    def source_jurisdiction(self) -> Jurisdiction:
-        return self._jurisdiction
-
-    @property
-    def eligible_for_splitting(self) -> bool:
-        return self._eligible_for_splitting
+        for weight in allocation.values():
+            if weight < 0:
+                raise ValueError("Allocation weights must be non-negative")
 
     # ---------------------------------------------------------
-    # Simulation Lifecycle
+    # Reset
     # ---------------------------------------------------------
 
-    def step(self, context: SimulationYearContext) -> None:
-        """
-        Apply market return for the year.
-        """
+    def _reset_internal(self) -> None:
+        self._value = self._initial_value
+        self._pending_withdrawal = 0.0
 
-        if not context.is_alive(self._owner):
+    # ---------------------------------------------------------
+    # Growth Phase
+    # ---------------------------------------------------------
+
+    def _pre_distribution(self) -> None:
+
+        if not self._owner.is_alive():
             return
 
         if self._value <= 0:
             return
 
-        portfolio_return = 0.0
+        allocation = self._allocation()
+        market = self._current_market()
 
-        for asset, weight in self._allocation.items():
-            asset_return = context.market.return_for(asset)
-            portfolio_return += weight * asset_return
+        portfolio_return = sum(
+            weight * market.return_for(asset)
+            for asset, weight in allocation.items()
+        )
 
         self._value *= (1.0 + portfolio_return)
 
     # ---------------------------------------------------------
+    # Withdrawal Phase
+    # ---------------------------------------------------------
 
-    def distribution(self, context: SimulationYearContext) -> DistributionCharacter:
+    def _distribution(self) -> Distribution:
 
-        if not context.is_alive(self._owner):
-            return self._zero()
-
-        if self._withdrawal_policy is None:
-            return self._zero()
+        if not self._owner.is_alive():
+            self._pending_withdrawal = 0.0
+            return Distribution()
 
         if self._value <= 0:
-            return self._zero()
+            self._pending_withdrawal = 0.0
+            return Distribution()
 
-        age = context.age_of(self._owner)
+        proposed = self._withdrawal_distribution()
 
-        dist = self._withdrawal_policy.withdraw(
-            account_value=self._value,
-            context=context,
-            age=age,
-        )
+        withdrawal_amount = max(0.0, min(proposed.gross, self._value))
+        self._pending_withdrawal = withdrawal_amount
 
-        withdrawal_amount = max(0.0, min(dist.gross, self._value))
+        if withdrawal_amount == proposed.gross:
+            return proposed
 
-        # Debit the account
-        self._value -= withdrawal_amount
-
-        # If no scaling needed, return original distribution
-        if withdrawal_amount == dist.gross:
-            return dist
-
-        # Proportional scaling when capped
-        ratio = withdrawal_amount / dist.gross if dist.gross > 0 else 0.0
-
-        return DistributionCharacter(
-            other_ordinary=dist.other_ordinary * ratio,
-            capital_gain=dist.capital_gain * ratio,
-            return_of_basis=dist.return_of_basis * ratio,
-            dividend=dist.dividend * ratio,
-            interest=dist.interest * ratio,
-            tax_withheld=dist.tax_withheld * ratio,
-        )
+        ratio = withdrawal_amount / proposed.gross if proposed.gross > 0 else 0.0
+        return proposed.scaled(ratio)
 
     # ---------------------------------------------------------
 
-    def value(self) -> float:
+    def _withdrawal_distribution(self) -> Distribution:
+        """
+        Hook for withdrawal logic.
+
+        Default: no withdrawals.
+
+        Subclasses override to implement:
+            - Fixed dollar withdrawal
+            - Percentage withdrawal
+            - RMD logic
+            - Guardrails
+            - Dynamic spending rules
+        """
+        return Distribution()
+
+    # ---------------------------------------------------------
+    # Debit Phase
+    # ---------------------------------------------------------
+
+    def _post_distribution(self, distribution: Distribution) -> None:
+        if self._pending_withdrawal > 0:
+            self._value -= self._pending_withdrawal
+            self._pending_withdrawal = 0.0
+
+    # ---------------------------------------------------------
+
+    def _end_balance(self) -> float:
         return self._value
-
-    # ---------------------------------------------------------
-
-    def _zero(self) -> DistributionCharacter:
-        return DistributionCharacter()

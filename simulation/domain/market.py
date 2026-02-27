@@ -1,7 +1,87 @@
 from __future__ import annotations
-from typing import Optional, Dict
+from typing import Optional, Dict, Mapping
 import numpy as np
-from simulation.domain.types import MarketConfig, Factor, MarketYear
+from enum import Enum
+from dataclasses import dataclass
+
+from simulation.domain.types import Asset
+
+class Factor(str, Enum):
+    """
+    Stochastic drivers in the capital market model.
+    """
+
+    # Asset return drivers
+    US_EQ = "US_EQ"
+    US_BOND = "US_BOND"
+    US_RE = "US_RE"
+
+    CA_EQ = "CA_EQ"
+    CA_BOND = "CA_BOND"
+    CA_RE = "CA_RE"
+
+    # Inflation processes
+    US_INFL = "US_INFL"
+    CA_INFL = "CA_INFL"
+
+
+# Explicit mapping (no enum string hacks)
+ASSET_TO_FACTOR: Mapping[Asset, Factor] = {
+    Asset.US_EQ: Factor.US_EQ,
+    Asset.US_BOND: Factor.US_BOND,
+    Asset.US_RE: Factor.US_RE,
+    Asset.CA_EQ: Factor.CA_EQ,
+    Asset.CA_BOND: Factor.CA_BOND,
+    Asset.CA_RE: Factor.CA_RE,
+}
+
+
+# ============================================================
+# Market Configuration
+# ============================================================
+
+@dataclass(frozen=True)
+class MarketConfig:
+    mu: Mapping[Factor, float]
+    sigma: Mapping[Factor, float]
+    corr: np.ndarray
+
+    fx_start: float
+    fx_mu_log: float
+    fx_sigma_log: float
+
+    cola_mu: float
+    cola_sigma: float
+
+    def validate(self):
+        n = len(Factor)
+        if self.corr.shape != (n, n):
+            raise ValueError("Correlation matrix size mismatch")
+        if not np.allclose(self.corr, self.corr.T):
+            raise ValueError("Correlation matrix must be symmetric")
+        if not np.allclose(np.diag(self.corr), 1.0):
+            raise ValueError("Correlation diagonal must be 1.0")
+
+# ============================================================
+# Market Realization
+# ============================================================
+
+@dataclass(frozen=True)
+class MarketYear:
+    """
+    Realized stochastic state for one simulation year.
+    """
+
+    factors: Mapping[Factor, float]
+    fx_usd_cad: float
+    cola: float
+
+    def factor(self, f: Factor) -> float:
+        return self.factors[f]
+
+    def return_for(self, asset: Asset) -> float:
+        return self.factors[ASSET_TO_FACTOR[asset]]
+    
 
 
 class MarketEnvironment:

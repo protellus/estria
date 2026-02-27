@@ -1,23 +1,28 @@
 from __future__ import annotations
 import numpy as np
+from enum import Enum
 
-QX_US_FEMALE_2022 = np.array([
-    0.00139,0.00144,0.00150,0.00158,0.00168,0.00180,0.00195,0.00213,0.00233,0.00255,
-    0.00281,0.00309,0.00341,0.00377,0.00417,0.00461,0.00510,0.00563,0.00622,0.00686,
-    0.00756,0.00832,0.00915,0.01006,0.01105,0.01214,0.01333,0.01463,0.01606,0.01763,
-    0.01935,0.02124,0.02332,0.02561,0.02812,0.03088,0.03391,0.03724,0.04090,0.04493,
-    0.04937,0.05427,0.05969,0.06569,0.07235,0.07974,0.08794,0.09706,0.10719,0.11846,
-    0.13101,0.14500,0.16060,0.17799,0.19737,0.21896,0.24298,0.26969,0.29933,0.33219,
-    0.36854,0.40866,0.45282,0.50129,0.55432,0.61216,0.67504,0.74316,0.81670,0.89583,
-    1.00000
-])
+from .mortality_tables_canada_2022 import QX_CANADA_MALE_2022, QX_CANADA_FEMALE_2022
+from .mortality_tables_us_2022 import QX_US_FEMALE_2022, QX_US_MALE_2022
 
-QX_CANADA_MALE_2022 = np.array([
-    0.00189,0.00195,0.00203,0.00213,0.00225,0.00240,0.00258,0.00280,0.00305,0.00334,
-    0.00367,0.00405,0.00448,0.00497,0.00552,0.00614,0.00683,0.00760,0.00845,0.00940,
-    0.01045,0.01162,0.01292,0.01436,0.01596,0.01774,0.01971,0.02190,0.02433,0.02702,
-    0.02999,0.03327,0.03689,0.04087,0.04525,0.05006,0.05535,0.06115,0.06752,0.07451,
-    0.08218,0.09060,0.09984,0.10998,0.12112,0.13335,0.14679,0.16156,0.17779,0.19564,
-    0.21526,0.23684,0.26055,0.28659,0.31517,0.34653,0.38091,0.41858,0.45981,0.50492,
-    0.55422,0.60804,0.66671,0.73058,0.80003,0.87542,0.95714,1.00000
-])
+class MortalityTable(Enum):
+    CANADA_MALE_2022 = "canada_male_2022"
+    CANADA_FEMALE_2022 = "canada_female_2022"
+    US_FEMALE_2022 = "us_female_2022"
+    US_MALE_2022 = "us_male_2022"
+    US_FEMALE = "us_female"
+    US_MALE = "us_male"
+    CANADA_FEMALE = "canada_female"
+    CANADA_MALE = "canada_male"
+
+    def qx(self) -> np.ndarray:
+        if self in (MortalityTable.US_FEMALE_2022, MortalityTable.US_FEMALE):
+            return QX_US_FEMALE_2022
+        if self in (MortalityTable.US_MALE_2022, MortalityTable.US_MALE):
+            return QX_US_MALE_2022
+        if self in (MortalityTable.CANADA_MALE_2022, MortalityTable.CANADA_MALE):
+            return QX_CANADA_MALE_2022
+        if self in (MortalityTable.CANADA_FEMALE_2022, MortalityTable.CANADA_FEMALE):
+            return QX_CANADA_FEMALE_2022
+
+        raise NotImplementedError(f"No qx defined for {self}")
