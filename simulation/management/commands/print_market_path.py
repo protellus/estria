@@ -1,6 +1,5 @@
 from django.core.management.base import BaseCommand
-from simulation.domain.types import MarketConfig, Factor
-from simulation.domain.market import MarketEnvironment
+from simulation.domain.market import MarketEnvironment, MarketConfig, Factor
 import numpy as np
 
 
