@@ -5,6 +5,8 @@ import numpy as np
 
 from simulation.domain.person import Person
 from simulation.domain.types import Jurisdiction
+from simulation.domain.market import MarketYear, Factor, ReturnConvention
+
 
 class StaticMortalityTable:
     """
@@ -78,3 +80,26 @@ def beneficiary(rng, mortality_table):
         tax_residency=Jurisdiction.US,
         rng=rng,
     )
+
+@pytest.fixture
+def market_path_5y_zero():
+    """
+    Five-year deterministic market path with zero returns,
+    zero inflation, and arithmetic return convention.
+
+    Ensures:
+      - No portfolio growth
+      - No stochastic drift
+      - Fully deterministic accounting behavior
+    """
+    zero_factors = {f: 0.0 for f in Factor}
+
+    return [
+        MarketYear(
+            factors=zero_factors,
+            fx_usd_cad=1.0,
+            cola=0.0,
+            factor_return_convention=ReturnConvention.ARITHMETIC,
+        )
+        for _ in range(5)
+    ]

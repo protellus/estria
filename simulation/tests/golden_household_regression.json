@@ -1,0 +1,72 @@
+[
+  {
+    "year": 0,
+    "gross": 40000.0,
+    "cashflow_total": 40000.0,
+    "tax": 0.0,
+    "end_balance": 243985.3132301034
+  },
+  {
+    "year": 1,
+    "gross": 40800.0,
+    "cashflow_total": 40800.0,
+    "tax": 0.0,
+    "end_balance": 248403.57209289272
+  },
+  {
+    "year": 2,
+    "gross": 41616.0,
+    "cashflow_total": 41616.0,
+    "tax": 0.0,
+    "end_balance": 277099.9496758758
+  },
+  {
+    "year": 3,
+    "gross": 42448.32,
+    "cashflow_total": 42448.32,
+    "tax": 0.0,
+    "end_balance": 301885.72631357703
+  },
+  {
+    "year": 4,
+    "gross": 43297.2864,
+    "cashflow_total": 43297.2864,
+    "tax": 0.0,
+    "end_balance": 312962.51801799686
+  },
+  {
+    "year": 5,
+    "gross": 44163.232127999996,
+    "cashflow_total": 44163.232127999996,
+    "tax": 0.0,
+    "end_balance": 326489.8974795939
+  },
+  {
+    "year": 6,
+    "gross": 45046.49677056,
+    "cashflow_total": 45046.49677056,
+    "tax": 0.0,
+    "end_balance": 378293.18461601547
+  },
+  {
+    "year": 7,
+    "gross": 45947.4267059712,
+    "cashflow_total": 45947.4267059712,
+    "tax": 0.0,
+    "end_balance": 355120.22477962886
+  },
+  {
+    "year": 8,
+    "gross": 46866.37524009062,
+    "cashflow_total": 46866.37524009062,
+    "tax": 0.0,
+    "end_balance": 361664.42869895225
+  },
+  {
+    "year": 9,
+    "gross": 47803.702744892435,
+    "cashflow_total": 47803.702744892435,
+    "tax": 0.0,
+    "end_balance": 422409.16469137406
+  }
+]
